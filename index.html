@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>KPI ข้อร้องเรียน LINE</title>
+<!--
+  ============================================================================
+  ระบบบันทึกและประเมิน KPI นิติบุคคลหมู่บ้าน (เวอร์ชันมีระบบสมาชิก)
+  หัวข้อ: ข้อร้องเรียนกรณี "อ่าน LINE แล้วไม่ตอบลูกบ้าน"
+  ----------------------------------------------------------------------------
+  วิธีตั้งค่า
+  1) ค้นคำว่า "★ ตั้งค่าระบบ" ในไฟล์นี้ แล้ววาง URL ของ Google Apps Script
+     Web App (ลงท้ายด้วย /exec) ในตัวแปร API_URL
+  2) ฝั่ง Google Sheets ใช้โค้ดในไฟล์ Code.gs แล้วรัน setupAdmin ครั้งเดียว
+  * ไฟล์นี้ไม่มีรหัสผ่านหรือรหัสเชิญอยู่ข้างใน การตรวจสิทธิ์ทั้งหมดทำฝั่ง Apps Script
+  ============================================================================
+-->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { sans: ['"IBM Plex Sans Thai"', 'system-ui', 'sans-serif'] } } } };
+</script>
+<style>
+  body { font-family: "IBM Plex Sans Thai", system-ui, sans-serif; background:#f1f5f9; }
+  .spin { animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade-in { animation: fade .18s ease-out; }
+  @keyframes fade { from { opacity:0; transform: translateY(6px);} to {opacity:1; transform:none;} }
+  input:focus, select:focus, textarea:focus { outline: none; }
+  .field { margin-top:.25rem; width:100%; border-radius:.5rem; border:1px solid #cbd5e1; padding:.5rem .75rem; background:#fff; }
+  .field:focus { border-color:#6366f1; box-shadow:0 0 0 3px #e0e7ff; }
+</style>
+</head>
+<body class="text-slate-800 antialiased">
+
+<!-- ======================================================================
+     หน้าเข้าสู่ระบบ / สมัครสมาชิก / ตั้งรหัสผ่านใหม่
+     ====================================================================== -->
+<div id="authView" class="min-h-screen flex items-center justify-center px-4 py-10">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-6">
+      <div class="mx-auto w-14 h-14 rounded-2xl bg-indigo-600 text-white grid place-items-center">
+        <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5m-9 6 3-3h11a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14z"/></svg>
+      </div>
+      <h1 class="mt-4 text-xl font-bold">ระบบ KPI ข้อร้องเรียน LINE</h1>
+      <p class="text-sm text-slate-500 auth-org"></p>
+    </div>
+
+    <div class="rounded-2xl bg-white border border-slate-200 shadow-sm fade-in">
+      <!-- Tabs -->
+      <div id="authTabs" class="grid grid-cols-2 border-b border-slate-100 text-sm font-medium">
+        <button data-auth-tab="login" class="py-3 rounded-tl-2xl">เข้าสู่ระบบ</button>
+        <button data-auth-tab="register" class="py-3 rounded-tr-2xl">สมัครสมาชิก</button>
+      </div>
+
+      <div class="p-6">
+        <div id="authMsg" class="hidden mb-4 rounded-lg px-3 py-2 text-sm"></div>
+
+        <!-- Login -->
+        <form id="loginForm" class="space-y-4 text-sm" novalidate>
+          <label class="block"><span class="font-medium">ชื่อผู้ใช้</span>
+            <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" class="field"></label>
+          <label class="block"><span class="font-medium">รหัสผ่าน</span>
+            <input name="password" type="password" autocomplete="current-password" class="field pw"></label>
+          <div class="flex items-center justify-between">
+            <label class="inline-flex items-center gap-2 text-slate-600"><input type="checkbox" data-toggle-pw="loginForm"> แสดงรหัสผ่าน</label>
+            <button type="button" id="btnForgot" class="text-indigo-600 hover:underline">ลืมรหัสผ่าน?</button>
+          </div>
+          <div id="forgotBox" class="hidden rounded-lg bg-indigo-50 border border-indigo-100 p-3 text-indigo-900 leading-relaxed">
+            <p class="font-semibold mb-1">ลืมรหัสผ่าน ทำอย่างไร</p>
+            <ol class="list-decimal ml-5 space-y-0.5">
+              <li>ติดต่อผู้ดูแลระบบ (Admin) ทาง LINE ส่วนตัวหรือโทรศัพท์</li>
+              <li>ผู้ดูแลระบบยืนยันตัวตน แล้วส่ง<b>รหัสชั่วคราว 8 ตัว</b>ให้</li>
+              <li>เข้าสู่ระบบด้วยรหัสชั่วคราว ระบบจะให้ตั้งรหัสใหม่ทันที</li>
+            </ol>
+            <p class="mt-2 text-xs text-indigo-700">เพื่อความปลอดภัย ระบบไม่มีการรีเซ็ตรหัสผ่านด้วยตนเอง</p>
+          </div>
+          <button type="submit" class="w-full inline-flex justify-center items-center gap-2 rounded-lg bg-indigo-600 py-2.5 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span><span class="btn-label">เข้าสู่ระบบ</span>
+          </button>
+        </form>
+
+        <!-- Register -->
+        <form id="registerForm" class="hidden space-y-4 text-sm" novalidate>
+          <label class="block"><span class="font-medium">ชื่อ-ตำแหน่งในคณะกรรมการ <span class="text-red-500">*</span></span>
+            <input name="displayName" maxlength="60" placeholder="เช่น สมชาย ใจดี (เหรัญญิก)" class="field"></label>
+          <label class="block"><span class="font-medium">ชื่อผู้ใช้ (ภาษาอังกฤษ) <span class="text-red-500">*</span></span>
+            <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="เช่น somchai" class="field">
+            <span class="text-xs text-slate-400">ขึ้นต้นด้วยตัวอักษร a-z ยาว 3–30 ตัว ใช้ได้ a-z 0-9 . _ -</span></label>
+          <label class="block"><span class="font-medium">รหัสผ่าน (อย่างน้อย 8 ตัว) <span class="text-red-500">*</span></span>
+            <input name="password" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">ยืนยันรหัสผ่าน <span class="text-red-500">*</span></span>
+            <input name="confirm" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">รหัสเชิญ (Invitation Code) <span class="text-red-500">*</span></span>
+            <input name="inviteCode" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="รับจากผู้ดูแลระบบ" class="field"></label>
+          <label class="inline-flex items-center gap-2 text-slate-600"><input type="checkbox" data-toggle-pw="registerForm"> แสดงรหัสผ่าน</label>
+          <button type="submit" class="w-full inline-flex justify-center items-center gap-2 rounded-lg bg-indigo-600 py-2.5 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span><span class="btn-label">สมัครและเข้าใช้งาน</span>
+          </button>
+        </form>
+
+        <!-- Force change password -->
+        <form id="forceForm" class="hidden space-y-4 text-sm" novalidate>
+          <div class="rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-900">
+            <p class="font-semibold">กรุณาตั้งรหัสผ่านใหม่</p>
+            <p class="mt-0.5">คุณเข้าสู่ระบบด้วยรหัสชั่วคราว ต้องตั้งรหัสผ่านใหม่ก่อนใช้งาน</p>
+          </div>
+          <label class="block"><span class="font-medium">รหัสชั่วคราวที่ได้รับ</span>
+            <input name="oldPassword" type="password" autocomplete="current-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</span>
+            <input name="newPassword" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">ยืนยันรหัสผ่านใหม่</span>
+            <input name="confirm" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="inline-flex items-center gap-2 text-slate-600"><input type="checkbox" data-toggle-pw="forceForm"> แสดงรหัสผ่าน</label>
+          <button type="submit" class="w-full inline-flex justify-center items-center gap-2 rounded-lg bg-indigo-600 py-2.5 font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span><span class="btn-label">บันทึกรหัสผ่านใหม่</span>
+          </button>
+          <button type="button" data-action="logout" class="w-full text-slate-500 hover:text-slate-800">ออกจากระบบ</button>
+        </form>
+
+        <!-- Checking session -->
+        <div id="authChecking" class="hidden py-8 text-center text-slate-400 text-sm">
+          <span class="inline-block w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full spin"></span>
+          <p class="mt-2">กำลังตรวจสอบการเข้าสู่ระบบ…</p>
+        </div>
+      </div>
+    </div>
+    <p class="mt-4 text-center text-xs text-slate-400">สำหรับคณะกรรมการหมู่บ้านเท่านั้น</p>
+  </div>
+</div>
+
+<!-- ======================================================================
+     หน้าหลัก (แสดงหลังเข้าสู่ระบบ)
+     ====================================================================== -->
+<div id="appView" class="hidden">
+<header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+  <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div class="flex items-start gap-3">
+      <div class="shrink-0 w-11 h-11 rounded-xl bg-indigo-600 text-white grid place-items-center">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5m-9 6 3-3h11a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14z"/></svg>
+      </div>
+      <div class="min-w-0">
+        <h1 class="text-lg sm:text-xl font-bold leading-tight">KPI ข้อร้องเรียน: อ่าน LINE แล้วไม่ตอบลูกบ้าน</h1>
+        <p class="text-sm text-slate-500"><span class="auth-org"></span> · <span id="committeeName"></span></p>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <label class="flex items-center gap-2 bg-slate-100 rounded-lg px-3 py-2 text-sm">
+        <span class="text-slate-500">เดือน</span>
+        <input id="monthPicker" type="month" class="bg-transparent font-medium">
+      </label>
+      <button id="btnRefresh" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50">
+        <svg id="refreshIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M5.1 15A7 7 0 0 0 18.9 15M18.9 9A7 7 0 0 0 5.1 9"/></svg>
+        รีเฟรชข้อมูลล่าสุด
+      </button>
+      <button id="btnNew" class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+        บันทึกเคสใหม่
+      </button>
+      <!-- User menu -->
+      <div class="relative">
+        <button id="btnUser" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white pl-2 pr-3 py-1.5 text-sm hover:bg-slate-50">
+          <span id="userAvatar" class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center font-semibold text-xs"></span>
+          <span class="text-left leading-tight">
+            <span id="userName" class="block font-medium max-w-[10rem] truncate"></span>
+            <span id="userRole" class="block text-[11px] text-slate-500"></span>
+          </span>
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="userMenu" class="hidden absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg py-1 text-sm z-40 fade-in">
+          <button data-action="members" class="admin-only hidden w-full text-left px-4 py-2 hover:bg-slate-50">👥 จัดการสมาชิก</button>
+          <button data-action="changePw" class="w-full text-left px-4 py-2 hover:bg-slate-50">🔑 เปลี่ยนรหัสผ่าน</button>
+          <div class="my-1 border-t border-slate-100"></div>
+          <button data-action="logout" class="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50">ออกจากระบบ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-7xl mx-auto px-4 pb-2 text-xs text-slate-400 flex items-center gap-2">
+    <span id="syncDot" class="w-2 h-2 rounded-full bg-slate-300"></span>
+    <span id="syncText">กำลังเชื่อมต่อ Google Sheets…</span>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+  <!-- Error banner -->
+  <div id="errorBanner" class="hidden rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 fade-in">
+    <div class="flex items-start gap-3">
+      <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <div class="flex-1">
+        <p class="font-semibold">ดึงข้อมูลจาก Google Sheets ไม่สำเร็จ</p>
+        <p id="errorText" class="mt-1"></p>
+        <p id="cacheNote" class="mt-1 hidden text-red-700/80">กำลังแสดงข้อมูลจากการซิงก์ครั้งล่าสุดที่เก็บไว้ในเครื่อง</p>
+      </div>
+      <button id="btnRetry" class="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-white font-medium hover:bg-red-700">ลองใหม่</button>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <section>
+    <div class="flex items-baseline justify-between mb-3">
+      <h2 class="font-semibold text-slate-700">สรุปประจำเดือน <span id="monthLabel" class="text-indigo-600"></span></h2>
+      <span class="text-xs text-slate-400">หมวด Customer Service &amp; Responsiveness</span>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+        <p class="text-sm text-slate-500">ข้อร้องเรียนทั้งหมด</p>
+        <p id="cardTotal" class="mt-2 text-3xl font-bold">–</p>
+        <p id="cardTotalSub" class="mt-1 text-xs text-slate-400">&nbsp;</p>
+      </div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+        <p class="text-sm text-slate-500">เคสที่ผิดจริง (Valid)</p>
+        <p id="cardValid" class="mt-2 text-3xl font-bold text-red-600">–</p>
+        <p class="mt-1 text-xs text-slate-400">นับเฉพาะสถานะ "ผิดจริง"</p>
+      </div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+        <p class="text-sm text-slate-500">สถานะ KPI</p>
+        <div class="mt-3"><span id="cardBadge" class="inline-flex rounded-full px-3 py-1 text-sm font-semibold bg-slate-100 text-slate-500">–</span></div>
+        <p id="cardNote" class="mt-2 text-xs text-slate-500">&nbsp;</p>
+      </div>
+      <div id="scoreCard" class="rounded-2xl border p-4 sm:p-5 bg-white border-slate-200">
+        <p class="text-sm text-slate-500">คะแนนประเมินที่ได้</p>
+        <p id="cardScore" class="mt-2 text-3xl font-bold">–</p>
+        <div class="mt-1 flex items-center gap-1 text-xs text-slate-500">
+          น้ำหนัก
+          <select id="weightSel" class="bg-transparent font-semibold text-slate-700 border-b border-dashed border-slate-300">
+            <option value="10">10%</option><option value="12.5">12.5%</option><option value="15">15%</option>
+          </select>
+          = <span id="cardWeighted" class="font-semibold text-slate-700">–</span>
+        </div>
+      </div>
+    </div>
+    <div class="mt-4 grid gap-4 lg:grid-cols-5">
+      <div class="lg:col-span-3 rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+        <p class="text-sm font-semibold text-slate-700 mb-3">เกณฑ์ตัดคะแนนรายเดือน (นับเฉพาะเคสผิดจริง)</p>
+        <div id="criteria" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm"></div>
+      </div>
+      <div class="lg:col-span-2 rounded-2xl bg-white border border-slate-200 p-4 sm:p-5">
+        <p class="text-sm font-semibold text-slate-700 mb-3">แนวโน้ม 6 เดือน</p>
+        <div id="history" class="grid grid-cols-6 gap-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Table -->
+  <section class="rounded-2xl bg-white border border-slate-200">
+    <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <h2 class="font-semibold text-slate-700">รายการข้อร้องเรียน <span id="rowCount" class="text-sm font-normal text-slate-400"></span></h2>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <div id="filterGroup" class="inline-flex rounded-lg bg-slate-100 p-1 text-sm">
+          <button data-filter="all" class="px-3 py-1.5 rounded-md">ทั้งหมด</button>
+          <button data-filter="month" class="px-3 py-1.5 rounded-md">เดือนที่เลือก</button>
+          <button data-filter="valid" class="px-3 py-1.5 rounded-md">เฉพาะ Valid</button>
+        </div>
+        <input id="searchBox" type="search" placeholder="ค้นหา บ้านเลขที่ / ชื่อ / แอดมิน" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 sm:w-64">
+      </div>
+    </div>
+    <div class="hidden md:block overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-left">
+          <tr>
+            <th class="px-4 py-3 font-medium whitespace-nowrap">วันเวลาเกิดเหตุ</th>
+            <th class="px-4 py-3 font-medium">บ้านเลขที่ / ลูกบ้าน</th>
+            <th class="px-4 py-3 font-medium">ช่องทาง / แอดมิน</th>
+            <th class="px-4 py-3 font-medium">ประเด็น</th>
+            <th class="px-4 py-3 font-medium text-right whitespace-nowrap">ค้างตอบ</th>
+            <th class="px-4 py-3 font-medium">สถานะ</th>
+            <th class="px-4 py-3 font-medium text-right">จัดการ</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody" class="divide-y divide-slate-100"></tbody>
+      </table>
+    </div>
+    <div id="cardList" class="md:hidden divide-y divide-slate-100"></div>
+    <div id="emptyState" class="hidden p-10 text-center text-slate-400 text-sm">ไม่มีรายการในตัวกรองนี้</div>
+    <div id="loadingState" class="p-10 text-center text-slate-400 text-sm">
+      <span class="inline-block w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full spin"></span>
+      <p class="mt-2">กำลังโหลดข้อมูล…</p>
+    </div>
+  </section>
+  <p class="text-center text-xs text-slate-400 pb-6">ข้อมูลจัดเก็บใน Google Sheets ส่วนกลาง · คณะกรรมการทุกคนเห็นข้อมูลชุดเดียวกัน</p>
+</main>
+</div>
+
+<!-- ================= MODAL: บันทึก/แก้ไขเคส ================= -->
+<div id="modal" class="hidden fixed inset-0 z-40">
+  <div data-close class="absolute inset-0 bg-slate-900/50"></div>
+  <div class="relative h-full overflow-y-auto pointer-events-none">
+    <div class="min-h-full flex items-end sm:items-center justify-center sm:p-4">
+      <form id="caseForm" class="pointer-events-auto fade-in w-full sm:max-w-2xl bg-white sm:rounded-2xl rounded-t-2xl shadow-xl" novalidate>
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 id="modalTitle" class="font-semibold text-lg">บันทึกเคสใหม่</h3>
+          <button type="button" data-close class="p-2 -mr-2 rounded-lg text-slate-400 hover:bg-slate-100" aria-label="ปิด">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="px-5 py-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+          <input type="hidden" name="id">
+          <label class="block"><span class="font-medium">วันที่และเวลาเกิดเหตุ <span class="text-red-500">*</span></span>
+            <input name="incidentDateTime" type="datetime-local" class="field"></label>
+          <label class="block"><span class="font-medium">บ้านเลขที่ / ซอย <span class="text-red-500">*</span></span>
+            <input name="houseNo" placeholder="เช่น 99/12 ซอย 3" class="field"></label>
+          <label class="block"><span class="font-medium">ชื่อลูกบ้าน</span>
+            <input name="residentName" class="field"></label>
+          <label class="block"><span class="font-medium">ช่องทาง <span class="text-red-500">*</span></span>
+            <select name="channel" class="field">
+              <option value="LINE Official Account">LINE Official Account</option>
+              <option value="กลุ่ม LINE ย่อย">กลุ่ม LINE ย่อย</option>
+              <option value="อื่น ๆ">อื่น ๆ</option>
+            </select></label>
+          <label class="block"><span class="font-medium">เจ้าหน้าที่แอดมินที่ประจำการ <span class="text-red-500">*</span></span>
+            <input name="admin" list="adminList" class="field"><datalist id="adminList"></datalist></label>
+          <label class="block"><span class="font-medium">ระยะเวลาค้างตอบโดยประมาณ (นาที)</span>
+            <input name="pendingMinutes" type="number" min="0" step="1" inputmode="numeric" class="field"></label>
+          <label class="block sm:col-span-2"><span class="font-medium">ประเด็นข้อร้องเรียน <span class="text-red-500">*</span></span>
+            <textarea name="issue" rows="2" class="field"></textarea></label>
+          <label class="block sm:col-span-2"><span class="font-medium">ลิงก์รูปภาพหลักฐาน (Screenshot URL / Google Drive)</span>
+            <input name="evidenceUrl" type="url" placeholder="https://drive.google.com/…" class="field"></label>
+          <label class="block sm:col-span-2"><span class="font-medium">ผลการตรวจสอบ <span class="text-red-500">*</span></span>
+            <select name="status" class="field">
+              <option value="รอตรวจสอบ">รอตรวจสอบ</option>
+              <option value="ผิดจริง (Valid)">ผิดจริง (Valid) — นับหักคะแนน</option>
+              <option value="ไม่เข้าเกณฑ์ (Invalid)">ไม่เข้าเกณฑ์ (Invalid)</option>
+            </select></label>
+          <label class="block sm:col-span-2"><span class="font-medium">คำชี้แจงของเจ้าหน้าที่ / แนวทางแก้ไข</span>
+            <textarea name="explanation" rows="3" class="field"></textarea></label>
+          <p id="formError" class="hidden sm:col-span-2 rounded-lg bg-red-50 text-red-700 px-3 py-2"></p>
+        </div>
+        <div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 bg-slate-50 sm:rounded-b-2xl">
+          <button type="button" data-close class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50">ยกเลิก</button>
+          <button id="btnSave" type="submit" class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span>
+            <span class="btn-label">บันทึกข้อมูล</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: รายละเอียดเคส ================= -->
+<div id="detail" class="hidden fixed inset-0 z-40">
+  <div data-close-detail class="absolute inset-0 bg-slate-900/50"></div>
+  <div class="relative h-full overflow-y-auto pointer-events-none">
+    <div class="min-h-full flex items-end sm:items-center justify-center sm:p-4">
+      <div id="detailBody" class="pointer-events-auto fade-in w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl shadow-xl"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: เปลี่ยนรหัสผ่าน ================= -->
+<div id="pwModal" class="hidden fixed inset-0 z-40">
+  <div data-close-modal="pwModal" class="absolute inset-0 bg-slate-900/50"></div>
+  <div class="relative h-full overflow-y-auto pointer-events-none">
+    <div class="min-h-full flex items-end sm:items-center justify-center sm:p-4">
+      <form id="pwForm" class="pointer-events-auto fade-in w-full sm:max-w-md bg-white sm:rounded-2xl rounded-t-2xl shadow-xl" novalidate>
+        <div class="px-5 py-4 border-b border-slate-100 font-semibold text-lg">เปลี่ยนรหัสผ่าน</div>
+        <div class="px-5 py-5 space-y-4 text-sm">
+          <label class="block"><span class="font-medium">รหัสผ่านปัจจุบัน</span>
+            <input name="oldPassword" type="password" autocomplete="current-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</span>
+            <input name="newPassword" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="block"><span class="font-medium">ยืนยันรหัสผ่านใหม่</span>
+            <input name="confirm" type="password" autocomplete="new-password" class="field pw"></label>
+          <label class="inline-flex items-center gap-2 text-slate-600"><input type="checkbox" data-toggle-pw="pwForm"> แสดงรหัสผ่าน</label>
+          <p class="form-err hidden rounded-lg bg-red-50 text-red-700 px-3 py-2"></p>
+        </div>
+        <div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 bg-slate-50 sm:rounded-b-2xl">
+          <button type="button" data-close-modal="pwModal" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium">ยกเลิก</button>
+          <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span><span class="btn-label">บันทึก</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MODAL: จัดการสมาชิก (admin) ================= -->
+<div id="membersModal" class="hidden fixed inset-0 z-40">
+  <div data-close-modal="membersModal" class="absolute inset-0 bg-slate-900/50"></div>
+  <div class="relative h-full overflow-y-auto pointer-events-none">
+    <div class="min-h-full flex items-end sm:items-center justify-center sm:p-4">
+      <div class="pointer-events-auto fade-in w-full sm:max-w-3xl bg-white sm:rounded-2xl rounded-t-2xl shadow-xl">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 class="font-semibold text-lg">จัดการสมาชิก</h3>
+          <button type="button" data-close-modal="membersModal" class="p-2 -mr-2 rounded-lg text-slate-400 hover:bg-slate-100" aria-label="ปิด">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="p-5 space-y-5 text-sm">
+          <!-- Invite code -->
+          <form id="inviteForm" class="rounded-xl border border-slate-200 p-4" novalidate>
+            <p class="font-semibold text-slate-700">รหัสเชิญสำหรับสมัครสมาชิก</p>
+            <p class="text-xs text-slate-500 mb-3">ส่งให้กรรมการที่ต้องการสมัคร · เปลี่ยนได้ทุกเมื่อ (รหัสเดิมจะใช้สมัครไม่ได้ทันที แต่บัญชีที่สมัครแล้วยังใช้ได้)</p>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input name="inviteCode" autocomplete="off" autocapitalize="none" spellcheck="false" class="field !mt-0 flex-1 font-mono" placeholder="กำลังโหลด…">
+              <button type="submit" class="inline-flex justify-center items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 font-semibold text-white hover:bg-slate-900 disabled:opacity-60">
+                <span class="btn-spin hidden w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span><span class="btn-label">บันทึกรหัสเชิญ</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- Temp password result -->
+          <div id="tempBox" class="hidden rounded-xl border-2 border-indigo-300 bg-indigo-50 p-4 fade-in">
+            <p class="font-semibold text-indigo-900">รหัสชั่วคราวสำหรับ <span id="tempUser"></span></p>
+            <div class="mt-2 flex items-center gap-2">
+              <code id="tempCode" class="flex-1 rounded-lg bg-white border border-indigo-200 px-3 py-2 text-xl font-bold tracking-widest text-center"></code>
+              <button id="btnCopyTemp" class="rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white hover:bg-indigo-700">คัดลอก</button>
+            </div>
+            <p class="mt-2 text-xs text-indigo-800">รหัสนี้แสดงครั้งเดียว ส่งให้เจ้าของบัญชีทางช่องทางส่วนตัวเท่านั้น เมื่อเข้าสู่ระบบ ระบบจะบังคับให้ตั้งรหัสใหม่</p>
+          </div>
+
+          <!-- User list -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <p class="font-semibold text-slate-700">สมาชิกทั้งหมด <span id="memberCount" class="font-normal text-slate-400"></span></p>
+              <button id="btnReloadMembers" class="text-indigo-600 hover:underline text-xs">โหลดใหม่</button>
+            </div>
+            <div id="memberList" class="divide-y divide-slate-100 rounded-xl border border-slate-200"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed z-50 bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm rounded-xl px-4 py-3 text-sm font-medium shadow-lg"></div>
+
+<script>
+/* ============================================================================
+ * ★ ตั้งค่าระบบ — แก้เฉพาะส่วนนี้
+ * ----------------------------------------------------------------------------
+ * API_URL : URL ของ Google Apps Script Web App (Deploy > Manage deployments >
+ *           คัดลอก "Web app URL" ที่ลงท้ายด้วย /exec มาวางแทนด้านล่าง)
+ * ห้ามใส่รหัสผ่านหรือรหัสเชิญในไฟล์นี้ — ไฟล์นี้เปิดดูได้สาธารณะบน GitHub
+ * ==========================================================================*/
+const API_URL = "https://script.google.com/macros/s/AKfycbxHIIDKKagDV97stiMptQ3x8oXq0CCjuuuvlrw8rC4MtFi7h5pE2sqqO3BlNbz8bfwaUA/exec";
+
+const CONFIG = {
+  orgName: "นิติบุคคลหมู่บ้านนันทวัน บางนา กม.7",   // ชื่อนิติบุคคล
+  committee: "คณะกรรมการหมู่บ้าน",                // ชื่อคณะกรรมการ
+  defaultWeight: 15,                              // น้ำหนัก KPI เริ่มต้น (%)
+  timeoutMs: 25000,                               // หมดเวลาเชื่อมต่อ (มิลลิวินาที)
+  autoSyncMs: 120000                              // ซิงก์อัตโนมัติทุก 2 นาที
+};
+/* ======================== จบส่วนตั้งค่า ======================== */
+
+const FIELDS = [
+  ["id","รหัสเคส"], ["incidentDateTime","วันเวลาเกิดเหตุ"], ["houseNo","บ้านเลขที่/ซอย"],
+  ["residentName","ชื่อลูกบ้าน"], ["channel","ช่องทาง"], ["admin","แอดมินประจำการ"],
+  ["issue","ประเด็นข้อร้องเรียน"], ["pendingMinutes","ค้างตอบ (นาที)"], ["evidenceUrl","ลิงก์หลักฐาน"],
+  ["status","ผลการตรวจสอบ"], ["explanation","คำชี้แจง/แนวทางแก้ไข"], ["createdAt","บันทึกเมื่อ"], ["updatedAt","แก้ไขล่าสุด"],
+  ["createdBy","บันทึกโดย"], ["updatedBy","แก้ไขโดย"]
+];
+const LABEL_TO_KEY = Object.fromEntries(FIELDS.map(([k, l]) => [l, k]));
+const SESSION_KEY = "kpi_line_session_v2";
+const CACHE_PREFIX = "kpi_line_cache_v2:";
+const WEIGHT_KEY = "kpi_line_weight";
+const USERNAME_RE = /^[a-z][a-z0-9._-]{2,29}$/;
+
+const STATUS = {
+  valid:   { label: "ผิดจริง (Valid)",       badge: "bg-red-100 text-red-700 ring-red-200" },
+  pending: { label: "รอตรวจสอบ",            badge: "bg-amber-100 text-amber-800 ring-amber-200" },
+  invalid: { label: "ไม่เข้าเกณฑ์ (Invalid)", badge: "bg-emerald-100 text-emerald-700 ring-emerald-200" }
+};
+const TIERS = [
+  { pct: 100, label: "ผ่านมาตรฐาน", note: "เกณฑ์ผ่าน / มาตรฐานบริการ", tone: "emerald" },
+  { pct: 70,  label: "เฝ้าระวัง",    note: "ยอมรับได้ · ตักเตือนภายใน", tone: "amber" },
+  { pct: 30,  label: "ตกประเมิน",   note: "ออกหนังสือเตือน (Warning Letter)", tone: "red" },
+  { pct: 0,   label: "ตกประเมิน",   note: "มีผลตัดโบนัส / ปรับลดค่าจ้างบริหาร", tone: "red" }
+];
+const TONE = {
+  emerald: { badge: "bg-emerald-100 text-emerald-700", text: "text-emerald-600", card: "bg-emerald-50 border-emerald-200" },
+  amber:   { badge: "bg-amber-100 text-amber-800",     text: "text-amber-600",   card: "bg-amber-50 border-amber-200" },
+  red:     { badge: "bg-red-100 text-red-700",         text: "text-red-600",     card: "bg-red-50 border-red-200" }
+};
+
+const state = { session: null, rows: [], month: "", filter: "month", search: "", loading: false, editingId: null, syncTimer: null };
+
+// ---------- Helpers ----------
+const $ = (s, root = document) => root.querySelector(s);
+const pad = (n) => String(n).padStart(2, "0");
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  remove(k) { try { localStorage.removeItem(k); } catch {} }
+};
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  let s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) s = s.replace(" ", "T");
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+const monthKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+const toLocalInput = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function monthLabel(key, short = false) {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("th-TH", short ? { month: "short" } : { month: "long", year: "numeric" });
+}
+function fmtDateTime(d) {
+  if (!d) return "-";
+  return d.toLocaleString("th-TH", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+function normStatus(s) {
+  const t = String(s || "").toLowerCase();
+  if (t.includes("invalid") || t.includes("ไม่เข้าเกณฑ์")) return "invalid";
+  if (t.includes("valid") || t.includes("ผิดจริง")) return "valid";
+  return "pending";
+}
+function safeUrl(u) { try { const x = new URL(String(u).trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch { return ""; } }
+const tierFor = (n) => TIERS[Math.min(n, 3)];
+function normalizeRow(raw, i) {
+  const r = {};
+  for (const [k, v] of Object.entries(raw || {})) r[LABEL_TO_KEY[k] || k] = v;
+  r.id = r.id || `row-${i}`;
+  r._date = parseDate(r.incidentDateTime) || parseDate(r.createdAt);
+  r._status = normStatus(r.status);
+  r._month = r._date ? monthKey(r._date) : "";
+  return r;
+}
+function setBusy(btn, on, busyLabel) {
+  if (!btn) return;
+  const label = btn.querySelector(".btn-label"), sp = btn.querySelector(".btn-spin");
+  if (on) { btn.dataset.label = label ? label.textContent : ""; if (label && busyLabel) label.textContent = busyLabel; }
+  else if (label && btn.dataset.label) label.textContent = btn.dataset.label;
+  btn.disabled = on;
+  if (sp) sp.classList.toggle("hidden", !on);
+}
+function formErr(el, msg) { if (!el) return; el.textContent = msg || ""; el.classList.toggle("hidden", !msg); }
+
+let toastTimer;
+function toast(msg, type = "success") {
+  const el = $("#toast");
+  el.className = "fixed z-50 bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm rounded-xl px-4 py-3 text-sm font-medium shadow-lg fade-in " +
+    (type === "error" ? "bg-red-600 text-white" : type === "warn" ? "bg-amber-500 text-white" : "bg-slate-900 text-white");
+  el.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), 4500);
+}
+
+// ---------- API (ทุกคำสั่งเป็น POST และแนบ token) ----------
+async function fetchWithTimeout(url, opts = {}, ms = CONFIG.timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
+}
+async function api(action, params = {}) {
+  if (!API_URL || !/^https:\/\/script\.google\.com\//.test(API_URL)) throw Object.assign(new Error("ยังไม่ได้ตั้งค่า API_URL ในโค้ด"), { code: "CONFIG" });
+  let res;
+  try {
+    res = await fetchWithTimeout(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // text/plain เลี่ยง CORS preflight ของ Apps Script
+      body: JSON.stringify({ action, token: state.session?.token || "", ...params }),
+      redirect: "follow"
+    });
+  } catch (err) {
+    const msg = err.name === "AbortError" ? "เชื่อมต่อนานเกินกำหนด กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่"
+      : "ติดต่อเซิร์ฟเวอร์ไม่ได้ (เครือข่ายขัดข้อง หรือ Web App ไม่ได้ตั้งสิทธิ์เป็น Anyone)";
+    throw Object.assign(new Error(msg), { code: "NETWORK" });
+  }
+  const text = await res.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch { throw Object.assign(new Error("เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ — ตรวจว่า Deploy เป็น New version และตั้งสิทธิ์ Anyone แล้ว"), { code: "BAD_RESPONSE" }); }
+  if (!j.ok) {
+    const e = Object.assign(new Error(j.error || "เกิดข้อผิดพลาด"), { code: j.code || "" });
+    if (e.code === "AUTH" && state.session) logoutLocal(e.message, "warn");
+    if (e.code === "MUST_CHANGE") showAuth("force");
+    throw e;
+  }
+  return j;
+}
+
+// ---------- Session ----------
+function setSession(token, user) {
+  state.session = { token, user };
+  store.set(SESSION_KEY, JSON.stringify(state.session));
+}
+function clearSession() {
+  if (state.session?.user) store.remove(CACHE_PREFIX + state.session.user.username);
+  state.session = null;
+  store.remove(SESSION_KEY);
+}
+function logoutLocal(msg, type = "info") {
+  stopSync();
+  clearSession();
+  state.rows = [];
+  closeAllModals();
+  showAuth("login", msg, type);
+}
+async function logout() {
+  try { await api("logout"); } catch {}
+  logoutLocal("ออกจากระบบเรียบร้อยแล้ว");
+}
+
+// ---------- Auth view ----------
+function showAuth(mode, msg, type = "info") {
+  $("#appView").classList.add("hidden");
+  $("#authView").classList.remove("hidden");
+  document.body.style.overflow = "";
+  const isTab = mode === "login" || mode === "register";
+  $("#authTabs").classList.toggle("hidden", !isTab);
+  ["loginForm", "registerForm", "forceForm"].forEach((id) => $("#" + id).classList.add("hidden"));
+  $("#authChecking").classList.toggle("hidden", mode !== "checking");
+  if (mode === "login") $("#loginForm").classList.remove("hidden");
+  if (mode === "register") $("#registerForm").classList.remove("hidden");
+  if (mode === "force") { $("#forceForm").reset(); $("#forceForm").classList.remove("hidden"); }
+  document.querySelectorAll("#authTabs button").forEach((b) => {
+    b.className = "py-3 " + (b.dataset.authTab === "login" ? "rounded-tl-2xl " : "rounded-tr-2xl ") +
+      (b.dataset.authTab === mode ? "text-indigo-700 border-b-2 border-indigo-600 bg-white" : "text-slate-500 bg-slate-50 hover:text-slate-800");
+  });
+  authMsg(msg, type);
+  const focus = { login: '#loginForm [name=username]', register: '#registerForm [name=displayName]', force: '#forceForm [name=oldPassword]' }[mode];
+  if (focus) setTimeout(() => $(focus)?.focus(), 50);
+}
+function authMsg(msg, type = "info") {
+  const el = $("#authMsg");
+  if (!msg) { el.classList.add("hidden"); return; }
+  el.className = "mb-4 rounded-lg px-3 py-2 text-sm " + ({
+    error: "bg-red-50 text-red-700 border border-red-100",
+    warn: "bg-amber-50 text-amber-800 border border-amber-100",
+    success: "bg-emerald-50 text-emerald-700 border border-emerald-100"
+  }[type] || "bg-slate-50 text-slate-700 border border-slate-200");
+  el.textContent = msg;
+}
+function afterAuth() {
+  if (state.session.user.mustChange) showAuth("force");
+  else enterApp();
+}
+
+$("#loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector("[type=submit]");
+  const username = f.elements.username.value.trim().toLowerCase(), password = f.elements.password.value;
+  if (!username || !password) return authMsg("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน", "error");
+  setBusy(btn, true, "กำลังเข้าสู่ระบบ…");
+  try {
+    const r = await api("login", { username, password });
+    setSession(r.token, r.user);
+    f.reset();
+    afterAuth();
+  } catch (err) { authMsg(err.message, "error"); f.elements.password.value = ""; f.elements.password.focus(); }
+  finally { setBusy(btn, false); }
+});
+
+$("#registerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector("[type=submit]");
+  const d = {
+    displayName: f.elements.displayName.value.trim(), username: f.elements.username.value.trim().toLowerCase(),
+    password: f.elements.password.value, inviteCode: f.elements.inviteCode.value.trim()
+  };
+  if (!d.displayName) return authMsg("กรุณากรอกชื่อ-ตำแหน่ง", "error");
+  if (!USERNAME_RE.test(d.username)) return authMsg("ชื่อผู้ใช้ต้องขึ้นต้นด้วยตัวอักษร a-z ยาว 3–30 ตัว ใช้ได้ a-z 0-9 . _ -", "error");
+  if (d.password.length < 8) return authMsg("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร", "error");
+  if (d.password !== f.elements.confirm.value) return authMsg("ยืนยันรหัสผ่านไม่ตรงกัน", "error");
+  if (!d.inviteCode) return authMsg("กรุณากรอกรหัสเชิญ", "error");
+  setBusy(btn, true, "กำลังสมัคร…");
+  try {
+    const r = await api("register", d);
+    setSession(r.token, r.user);
+    f.reset();
+    toast("สมัครสมาชิกสำเร็จ ยินดีต้อนรับ " + r.user.displayName);
+    afterAuth();
+  } catch (err) { authMsg(err.message, "error"); }
+  finally { setBusy(btn, false); }
+});
+
+async function submitChangePassword(f, errEl) {
+  const btn = f.querySelector("[type=submit]");
+  const oldPassword = f.elements.oldPassword.value, newPassword = f.elements.newPassword.value;
+  const show = (m) => errEl ? formErr(errEl, m) : authMsg(m, "error");
+  if (!oldPassword) return show("กรุณากรอกรหัสผ่านปัจจุบัน");
+  if (newPassword.length < 8) return show("รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร");
+  if (newPassword !== f.elements.confirm.value) return show("ยืนยันรหัสผ่านใหม่ไม่ตรงกัน");
+  if (newPassword === oldPassword) return show("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสเดิม");
+  show("");
+  setBusy(btn, true, "กำลังบันทึก…");
+  try {
+    const r = await api("changePassword", { oldPassword, newPassword });
+    setSession(r.token, r.user);
+    f.reset();
+    return true;
+  } catch (err) { show(err.message); return false; }
+  finally { setBusy(btn, false); }
+}
+$("#forceForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (await submitChangePassword(e.target, null)) { toast("ตั้งรหัสผ่านใหม่เรียบร้อย"); enterApp(); }
+});
+$("#pwForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (await submitChangePassword(e.target, $("#pwForm .form-err"))) { closeModal("pwModal"); toast("เปลี่ยนรหัสผ่านเรียบร้อย"); }
+});
+
+// ---------- App ----------
+function enterApp() {
+  const u = state.session.user;
+  $("#authView").classList.add("hidden");
+  $("#appView").classList.remove("hidden");
+  $("#userName").textContent = u.displayName || u.username;
+  $("#userRole").textContent = u.role === "admin" ? "ผู้ดูแลระบบ" : "กรรมการ";
+  $("#userAvatar").textContent = (u.displayName || u.username).trim().charAt(0).toUpperCase();
+  document.querySelectorAll(".admin-only").forEach((el) => el.classList.toggle("hidden", u.role !== "admin"));
+  // แสดงข้อมูลแคชของผู้ใช้คนนี้ระหว่างรอโหลด
+  if (!state.rows.length) {
+    try { const c = JSON.parse(store.get(CACHE_PREFIX + u.username) || "null"); if (c?.list) state.rows = c.list.map(normalizeRow); } catch {}
+  }
+  $("#loadingState").classList.toggle("hidden", state.rows.length > 0);
+  render();
+  loadData({ silent: true });
+  startSync();
+}
+function startSync() {
+  stopSync();
+  state.syncTimer = setInterval(() => {
+    if (state.session && !document.hidden && $("#modal").classList.contains("hidden")) loadData({ silent: true });
+  }, CONFIG.autoSyncMs);
+}
+function stopSync() { if (state.syncTimer) clearInterval(state.syncTimer); state.syncTimer = null; }
+
+async function loadData({ silent = false } = {}) {
+  if (state.loading || !state.session) return;
+  state.loading = true;
+  setSyncing(true);
+  try {
+    const j = await api("list");
+    const list = j.data || [];
+    state.rows = list.map(normalizeRow);
+    store.set(CACHE_PREFIX + state.session.user.username, JSON.stringify({ at: Date.now(), list }));
+    hideError();
+    setSyncStatus("ok", `ซิงก์ล่าสุด ${new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น. · ${state.rows.length} รายการ`);
+    if (!silent) toast("โหลดข้อมูลล่าสุดแล้ว");
+  } catch (err) {
+    if (err.code === "AUTH" || err.code === "MUST_CHANGE") return;
+    showError(err.message, state.rows.length > 0);
+    setSyncStatus("error", "เชื่อมต่อไม่สำเร็จ");
+  } finally {
+    state.loading = false;
+    setSyncing(false);
+    $("#loadingState").classList.add("hidden");
+    if (state.session) render();
+  }
+}
+
+function setSyncing(on) {
+  $("#refreshIcon").classList.toggle("spin", on);
+  $("#btnRefresh").disabled = on;
+  if (on) setSyncStatus("busy", "กำลังซิงก์กับ Google Sheets…");
+}
+function setSyncStatus(kind, text) {
+  $("#syncDot").className = "w-2 h-2 rounded-full " + ({ ok: "bg-emerald-500", error: "bg-red-500", busy: "bg-amber-400 animate-pulse" }[kind] || "bg-slate-300");
+  $("#syncText").textContent = text;
+}
+function showError(msg, hasCache) {
+  $("#errorText").textContent = msg;
+  $("#cacheNote").classList.toggle("hidden", !hasCache);
+  $("#errorBanner").classList.remove("hidden");
+}
+function hideError() { $("#errorBanner").classList.add("hidden"); }
+
+// ---------- Render ----------
+function statsFor(key) {
+  const rows = state.rows.filter((r) => r._month === key);
+  const valid = rows.filter((r) => r._status === "valid").length;
+  const pending = rows.filter((r) => r._status === "pending").length;
+  return { total: rows.length, valid, pending, tier: tierFor(valid) };
+}
+function render() { renderSummary(); renderHistory(); renderTable(); renderAdminList(); }
+
+function renderSummary() {
+  const s = statsFor(state.month), tone = TONE[s.tier.tone];
+  $("#monthLabel").textContent = monthLabel(state.month);
+  $("#cardTotal").textContent = s.total;
+  $("#cardTotalSub").textContent = s.pending ? `รอตรวจสอบ ${s.pending} เคส` : "ไม่มีเคสค้างตรวจสอบ";
+  $("#cardValid").textContent = s.valid;
+  const badge = $("#cardBadge");
+  badge.className = "inline-flex rounded-full px-3 py-1 text-sm font-semibold " + tone.badge;
+  badge.textContent = s.tier.label;
+  $("#cardNote").textContent = s.tier.note + (s.pending ? " (อาจเปลี่ยนเมื่อตรวจเคสค้างเสร็จ)" : "");
+  $("#cardScore").textContent = s.tier.pct + "%";
+  $("#cardScore").className = "mt-2 text-3xl font-bold " + tone.text;
+  $("#scoreCard").className = "rounded-2xl border p-4 sm:p-5 " + tone.card;
+  const w = Number($("#weightSel").value), pts = (s.tier.pct * w) / 100;
+  $("#cardWeighted").textContent = `${Number.isInteger(pts) ? pts : pts.toFixed(2)} / ${w} คะแนน`;
+  $("#criteria").innerHTML = TIERS.map((t, i) => {
+    const tn = TONE[t.tone], active = t === s.tier;
+    return `<div class="rounded-xl border p-3 ${active ? tn.card + " ring-2 ring-offset-1 ring-indigo-400" : "border-slate-200"}">
+      <p class="text-xs text-slate-500">${i === 3 ? "3 ครั้งขึ้นไป" : i + " ครั้ง"}</p>
+      <p class="text-xl font-bold ${tn.text}">${t.pct}%</p>
+      <p class="text-xs text-slate-600 leading-snug">${esc(t.note)}</p></div>`;
+  }).join("");
+}
+function renderHistory() {
+  const [y, m] = state.month.split("-").map(Number);
+  const cells = [];
+  for (let i = 5; i >= 0; i--) {
+    const key = monthKey(new Date(y, m - 1 - i, 1)), s = statsFor(key), tn = TONE[s.tier.tone], sel = key === state.month;
+    cells.push(`<button data-month="${key}" class="rounded-lg border p-2 text-center ${sel ? "border-indigo-500 ring-2 ring-indigo-100" : "border-slate-200 hover:bg-slate-50"}">
+      <p class="text-[11px] text-slate-500">${monthLabel(key, true)}</p>
+      <p class="text-sm font-bold ${s.total ? tn.text : "text-slate-300"}">${s.total ? s.tier.pct + "%" : "–"}</p>
+      <p class="text-[10px] text-slate-400">${s.valid} valid</p></button>`);
+  }
+  $("#history").innerHTML = cells.join("");
+}
+function filteredRows() {
+  const q = state.search.trim().toLowerCase();
+  return state.rows
+    .filter((r) => state.filter === "all" ? true : state.filter === "month" ? r._month === state.month : r._status === "valid")
+    .filter((r) => !q || [r.houseNo, r.residentName, r.admin, r.issue, r.channel].some((v) => String(v || "").toLowerCase().includes(q)))
+    .sort((a, b) => (b._date?.getTime() || 0) - (a._date?.getTime() || 0));
+}
+const statusBadge = (r) => `<span class="inline-flex whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${STATUS[r._status].badge}">${STATUS[r._status].label}</span>`;
+function evidenceBtn(r) {
+  const u = safeUrl(r.evidenceUrl);
+  return u
+    ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 0 1 2.8 0L16 16m-2-2 1.6-1.6a2 2 0 0 1 2.8 0L20 14M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z"/></svg>หลักฐาน</a>`
+    : `<span class="text-xs text-slate-300">ไม่มีหลักฐาน</span>`;
+}
+const mins = (v) => (v === "" || v == null || isNaN(Number(v))) ? "-" : `${Number(v).toLocaleString("th-TH")} นาที`;
+
+function renderTable() {
+  document.querySelectorAll("#filterGroup button").forEach((b) => {
+    b.className = "px-3 py-1.5 rounded-md " + (b.dataset.filter === state.filter ? "bg-white shadow-sm font-semibold text-indigo-700" : "text-slate-600 hover:text-slate-900");
+  });
+  const rows = filteredRows();
+  $("#rowCount").textContent = `(${rows.length} รายการ)`;
+  $("#emptyState").classList.toggle("hidden", rows.length > 0 || state.loading);
+  $("#tableBody").innerHTML = rows.map((r) => `
+    <tr class="hover:bg-slate-50 align-top">
+      <td class="px-4 py-3 whitespace-nowrap">${fmtDateTime(r._date)}</td>
+      <td class="px-4 py-3"><p class="font-medium">${esc(r.houseNo) || "-"}</p><p class="text-xs text-slate-500">${esc(r.residentName)}</p></td>
+      <td class="px-4 py-3"><p>${esc(r.channel) || "-"}</p><p class="text-xs text-slate-500">${esc(r.admin)}</p></td>
+      <td class="px-4 py-3 max-w-xs"><button data-detail="${esc(r.id)}" class="text-left line-clamp-2 hover:text-indigo-700">${esc(r.issue) || "-"}</button></td>
+      <td class="px-4 py-3 text-right whitespace-nowrap">${mins(r.pendingMinutes)}</td>
+      <td class="px-4 py-3">${statusBadge(r)}</td>
+      <td class="px-4 py-3"><div class="flex justify-end items-center gap-2">${evidenceBtn(r)}
+        <button data-edit="${esc(r.id)}" class="rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">แก้ไข</button></div></td>
+    </tr>`).join("");
+  $("#cardList").innerHTML = rows.map((r) => `
+    <div class="p-4 space-y-2">
+      <div class="flex items-start justify-between gap-3">
+        <div><p class="font-semibold">${esc(r.houseNo) || "-"} <span class="font-normal text-slate-500">${esc(r.residentName)}</span></p>
+          <p class="text-xs text-slate-500">${fmtDateTime(r._date)} · ${esc(r.channel)}</p></div>
+        ${statusBadge(r)}
+      </div>
+      <button data-detail="${esc(r.id)}" class="block text-left text-sm text-slate-700 line-clamp-2">${esc(r.issue)}</button>
+      <div class="flex items-center justify-between text-xs text-slate-500">
+        <span>แอดมิน: ${esc(r.admin) || "-"} · ค้าง ${mins(r.pendingMinutes)}</span>
+        <span class="flex items-center gap-2">${evidenceBtn(r)}<button data-edit="${esc(r.id)}" class="rounded-md px-2 py-1 font-medium text-slate-600 hover:bg-slate-100">แก้ไข</button></span>
+      </div>
+    </div>`).join("");
+}
+function renderAdminList() {
+  const names = [...new Set(state.rows.map((r) => String(r.admin || "").trim()).filter(Boolean))];
+  $("#adminList").innerHTML = names.map((n) => `<option value="${esc(n)}">`).join("");
+}
+
+// ---------- Modals ----------
+function openModal(id) { $("#" + id).classList.remove("hidden"); document.body.style.overflow = "hidden"; }
+function closeModal(id) {
+  $("#" + id).classList.add("hidden");
+  if (["modal", "detail", "pwModal", "membersModal"].every((m) => $("#" + m).classList.contains("hidden"))) document.body.style.overflow = "";
+}
+function closeAllModals() { ["modal", "detail", "pwModal", "membersModal"].forEach(closeModal); $("#userMenu").classList.add("hidden"); }
+
+function openDetail(id) {
+  const r = state.rows.find((x) => String(x.id) === String(id));
+  if (!r) return;
+  const row = (k, v) => `<div class="py-2 border-b border-slate-100"><p class="text-xs text-slate-500">${k}</p><p class="text-sm whitespace-pre-wrap">${v}</p></div>`;
+  const audit = [r.createdBy && `บันทึกโดย ${esc(r.createdBy)}`, r.updatedBy && r.updatedBy !== r.createdBy && `แก้ไขล่าสุดโดย ${esc(r.updatedBy)}`].filter(Boolean).join(" · ");
+  $("#detailBody").innerHTML = `
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100"><h3 class="font-semibold">รายละเอียดเคส</h3>${statusBadge(r)}</div>
+    <div class="px-5 py-2">
+      ${row("วันเวลาเกิดเหตุ", fmtDateTime(r._date))}
+      ${row("บ้านเลขที่ / ลูกบ้าน", `${esc(r.houseNo)} ${esc(r.residentName)}`)}
+      ${row("ช่องทาง / แอดมิน", `${esc(r.channel)} · ${esc(r.admin)}`)}
+      ${row("ระยะเวลาค้างตอบ", mins(r.pendingMinutes))}
+      ${row("ประเด็นข้อร้องเรียน", esc(r.issue) || "-")}
+      ${row("คำชี้แจง / แนวทางแก้ไข", esc(r.explanation) || "-")}
+      <div class="py-3 flex items-center justify-between gap-2">${evidenceBtn(r)}<span class="text-xs text-slate-400 text-right">${audit}</span></div>
+    </div>
+    <div class="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 bg-slate-50 sm:rounded-b-2xl">
+      <button data-close-detail class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium">ปิด</button>
+      <button data-edit="${esc(r.id)}" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">แก้ไข / อัปเดตผลตรวจ</button>
+    </div>`;
+  openModal("detail");
+}
+
+const form = $("#caseForm");
+function openForm(id = null) {
+  closeModal("detail");
+  form.reset();
+  formErr($("#formError"), "");
+  state.editingId = id;
+  const r = id ? state.rows.find((x) => String(x.id) === String(id)) : null;
+  $("#modalTitle").textContent = r ? "แก้ไขเคส / อัปเดตผลการตรวจสอบ" : "บันทึกเคสใหม่";
+  $("#btnSave .btn-label").textContent = r ? "บันทึกการแก้ไข" : "บันทึกข้อมูล";
+  if (r) {
+    for (const [k] of FIELDS) if (form.elements[k]) form.elements[k].value = r[k] ?? "";
+    form.elements.incidentDateTime.value = r._date ? toLocalInput(r._date) : "";
+    form.elements.status.value = STATUS[r._status].label;
+    if (r.channel && ![...form.elements.channel.options].some((o) => o.value === r.channel)) {
+      form.elements.channel.add(new Option(r.channel, r.channel)); form.elements.channel.value = r.channel;
+    }
+  } else {
+    form.elements.incidentDateTime.value = toLocalInput(new Date());
+  }
+  openModal("modal");
+  setTimeout(() => form.elements[r ? "status" : "houseNo"].focus(), 50);
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fe = $("#formError");
+  const data = Object.fromEntries(new FormData(form).entries());
+  for (const k of Object.keys(data)) data[k] = String(data[k]).trim();
+  const missing = [];
+  if (!data.incidentDateTime) missing.push("วันเวลาเกิดเหตุ");
+  if (!data.houseNo) missing.push("บ้านเลขที่");
+  if (!data.admin) missing.push("แอดมินประจำการ");
+  if (!data.issue) missing.push("ประเด็นข้อร้องเรียน");
+  if (data.evidenceUrl && !safeUrl(data.evidenceUrl)) missing.push("ลิงก์หลักฐาน (ต้องขึ้นต้นด้วย http/https)");
+  if (missing.length) return formErr(fe, "กรุณาตรวจสอบ: " + missing.join(", "));
+  formErr(fe, "");
+  const isEdit = !!state.editingId;
+  data.id = isEdit ? state.editingId : `C${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+  data.pendingMinutes = data.pendingMinutes === "" ? "" : Number(data.pendingMinutes);
+  const btn = $("#btnSave");
+  setBusy(btn, true, "กำลังบันทึก…");
+  try {
+    await api(isEdit ? "update" : "create", { data });
+    closeModal("modal");
+    const d = parseDate(data.incidentDateTime);
+    if (d) { state.month = monthKey(d); $("#monthPicker").value = state.month; }
+    await loadData({ silent: true });
+    toast(isEdit ? "✓ อัปเดตเคสเรียบร้อย" : "✓ บันทึกเคสใหม่ลง Google Sheets เรียบร้อย");
+  } catch (err) {
+    if (err.code !== "AUTH") { formErr(fe, "บันทึกไม่สำเร็จ: " + err.message); toast("บันทึกไม่สำเร็จ", "error"); }
+  } finally { setBusy(btn, false); }
+});
+
+// ---------- จัดการสมาชิก (admin) ----------
+let members = [];
+async function openMembers() {
+  $("#tempBox").classList.add("hidden");
+  openModal("membersModal");
+  await loadMembers();
+}
+async function loadMembers() {
+  $("#memberList").innerHTML = `<p class="p-6 text-center text-slate-400">กำลังโหลด…</p>`;
+  try {
+    const r = await api("listUsers");
+    members = r.users || [];
+    renderMembers();
+    const inv = await api("getInvite");
+    $("#inviteForm").elements.inviteCode.value = inv.inviteCode || "";
+  } catch (err) {
+    if (err.code !== "AUTH") $("#memberList").innerHTML = `<p class="p-6 text-center text-red-600">${esc(err.message)}</p>`;
+  }
+}
+function memberStatus(u) {
+  if (u.status === "suspended") return `<span class="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">ระงับ</span>`;
+  if (u.locked) return `<span class="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold">ล็อกชั่วคราว</span>`;
+  return `<span class="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-semibold">ใช้งาน</span>`;
+}
+function renderMembers() {
+  const me = state.session.user.username;
+  $("#memberCount").textContent = `(${members.length} คน)`;
+  const sorted = [...members].sort((a, b) => (a.role === "admin" ? -1 : 0) - (b.role === "admin" ? -1 : 0) || String(a.displayName).localeCompare(String(b.displayName), "th"));
+  $("#memberList").innerHTML = sorted.map((u) => {
+    const self = u.username === me;
+    const btn = (act, label, cls = "text-slate-700 hover:bg-slate-100") =>
+      `<button data-user-action="${act}" data-user="${esc(u.username)}" class="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium ${cls}">${label}</button>`;
+    const actions = self ? `<span class="text-xs text-slate-400">บัญชีของคุณ</span>` : [
+      btn("reset", "รีเซ็ตรหัสผ่าน"),
+      u.locked ? btn("unlock", "ปลดล็อก", "text-amber-700 hover:bg-amber-50") : "",
+      u.status === "suspended" ? btn("activate", "เปิดใช้งาน", "text-emerald-700 hover:bg-emerald-50") : btn("suspend", "ระงับ", "text-red-600 hover:bg-red-50"),
+      btn("delete", "ลบ", "text-red-600 hover:bg-red-50")
+    ].join("");
+    const last = parseDate(u.lastLogin);
+    return `<div class="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+      <div class="flex-1 min-w-0">
+        <p class="font-medium truncate">${esc(u.displayName) || "-"} ${u.role === "admin" ? `<span class="ml-1 rounded bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-[11px] font-semibold">Admin</span>` : ""}</p>
+        <p class="text-xs text-slate-500">@${esc(u.username)} · เข้าใช้ล่าสุด ${last ? fmtDateTime(last) : "-"}</p>
+        <div class="mt-1 flex flex-wrap gap-1">${memberStatus(u)}${u.mustChange ? `<span class="rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-xs">รอตั้งรหัสใหม่</span>` : ""}</div>
+      </div>
+      <div class="flex flex-wrap gap-1.5">${actions}</div>
+    </div>`;
+  }).join("") || `<p class="p-6 text-center text-slate-400">ยังไม่มีสมาชิก</p>`;
+}
+async function memberAction(act, username) {
+  const u = members.find((m) => m.username === username);
+  const name = u ? `${u.displayName} (@${u.username})` : username;
+  const confirmText = {
+    reset: `รีเซ็ตรหัสผ่านของ ${name}?\n\nยืนยันตัวตนเจ้าของบัญชีแล้วหรือยัง\nรหัสเดิมจะใช้ไม่ได้ทันที และเจ้าตัวจะถูกออกจากระบบทุกอุปกรณ์`,
+    suspend: `ระงับบัญชี ${name}?\nเจ้าตัวจะถูกออกจากระบบและเข้าใช้ไม่ได้จนกว่าจะเปิดใช้งานอีกครั้ง`,
+    delete: `ลบบัญชี ${name} ถาวร?\nข้อมูลเคสที่เคยบันทึกจะยังอยู่ครบ`
+  }[act];
+  if (confirmText && !confirm(confirmText)) return;
+  try {
+    if (act === "reset") {
+      const r = await api("resetPassword", { username });
+      $("#tempUser").textContent = name;
+      $("#tempCode").textContent = r.tempPassword;
+      $("#tempBox").classList.remove("hidden");
+      $("#tempBox").scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (act === "unlock") { await api("unlockUser", { username }); toast("ปลดล็อกแล้ว"); }
+    else if (act === "suspend") { await api("setUserStatus", { username, status: "suspended" }); toast("ระงับบัญชีแล้ว"); }
+    else if (act === "activate") { await api("setUserStatus", { username, status: "active" }); toast("เปิดใช้งานบัญชีแล้ว"); }
+    else if (act === "delete") { await api("deleteUser", { username }); toast("ลบบัญชีแล้ว"); }
+    const r = await api("listUsers"); members = r.users || []; renderMembers();
+  } catch (err) { if (err.code !== "AUTH") toast(err.message, "error"); }
+}
+$("#inviteForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector("[type=submit]"), code = f.elements.inviteCode.value.trim();
+  if (code.length < 6) return toast("รหัสเชิญต้องมีอย่างน้อย 6 ตัวอักษร", "error");
+  setBusy(btn, true, "กำลังบันทึก…");
+  try { await api("setInvite", { inviteCode: code }); toast("เปลี่ยนรหัสเชิญเรียบร้อย"); }
+  catch (err) { if (err.code !== "AUTH") toast(err.message, "error"); }
+  finally { setBusy(btn, false); }
+});
+$("#btnCopyTemp").addEventListener("click", async () => {
+  const code = $("#tempCode").textContent;
+  try { await navigator.clipboard.writeText(code); toast("คัดลอกรหัสชั่วคราวแล้ว"); }
+  catch { toast("คัดลอกอัตโนมัติไม่ได้ กรุณากดค้างที่รหัสเพื่อคัดลอก", "warn"); }
+});
+
+// ---------- Events ----------
+document.addEventListener("click", (e) => {
+  const menuBtn = e.target.closest("#btnUser");
+  if (menuBtn) { $("#userMenu").classList.toggle("hidden"); return; }
+  if (!e.target.closest("#userMenu")) $("#userMenu").classList.add("hidden");
+
+  const t = e.target.closest("[data-edit],[data-detail],[data-month],[data-filter],[data-close],[data-close-detail],[data-close-modal],[data-action],[data-auth-tab],[data-user-action]");
+  if (!t) return;
+  if (t.dataset.edit) openForm(t.dataset.edit);
+  else if (t.dataset.detail) openDetail(t.dataset.detail);
+  else if (t.dataset.month) { state.month = t.dataset.month; $("#monthPicker").value = state.month; render(); }
+  else if (t.dataset.filter) { state.filter = t.dataset.filter; renderTable(); }
+  else if (t.hasAttribute("data-close")) closeModal("modal");
+  else if (t.hasAttribute("data-close-detail")) closeModal("detail");
+  else if (t.dataset.closeModal) closeModal(t.dataset.closeModal);
+  else if (t.dataset.authTab) showAuth(t.dataset.authTab);
+  else if (t.dataset.userAction) memberAction(t.dataset.userAction, t.dataset.user);
+  else if (t.dataset.action) {
+    $("#userMenu").classList.add("hidden");
+    if (t.dataset.action === "logout") logout();
+    if (t.dataset.action === "changePw") { $("#pwForm").reset(); formErr($("#pwForm .form-err"), ""); openModal("pwModal"); setTimeout(() => $("#pwForm [name=oldPassword]").focus(), 50); }
+    if (t.dataset.action === "members" && state.session?.user.role === "admin") openMembers();
+  }
+});
+document.addEventListener("change", (e) => {
+  const id = e.target.dataset?.togglePw;
+  if (id) document.querySelectorAll(`#${id} .pw`).forEach((i) => (i.type = e.target.checked ? "text" : "password"));
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeAllModals(); } });
+$("#btnForgot").addEventListener("click", () => $("#forgotBox").classList.toggle("hidden"));
+$("#btnReloadMembers").addEventListener("click", loadMembers);
+$("#btnNew").addEventListener("click", () => openForm());
+$("#btnRefresh").addEventListener("click", () => loadData());
+$("#btnRetry").addEventListener("click", () => loadData());
+$("#monthPicker").addEventListener("change", (e) => { if (e.target.value) { state.month = e.target.value; render(); } });
+$("#searchBox").addEventListener("input", (e) => { state.search = e.target.value; renderTable(); });
+$("#weightSel").addEventListener("change", (e) => { store.set(WEIGHT_KEY, e.target.value); renderSummary(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && state.session && !$("#appView").classList.contains("hidden")) loadData({ silent: true }); });
+
+// ---------- Init ----------
+(async function init() {
+  document.querySelectorAll(".auth-org").forEach((el) => (el.textContent = CONFIG.orgName));
+  $("#committeeName").textContent = CONFIG.committee;
+  state.month = monthKey(new Date());
+  $("#monthPicker").value = state.month;
+  $("#weightSel").value = store.get(WEIGHT_KEY) || String(CONFIG.defaultWeight);
+  store.remove("kpi_line_cache_v1"); // ล้างแคชของเวอร์ชันก่อนที่ไม่มีระบบล็อกอิน
+
+  let saved = null;
+  try { saved = JSON.parse(store.get(SESSION_KEY) || "null"); } catch {}
+  if (!saved?.token) return showAuth("login");
+  state.session = saved;
+  showAuth("checking");
+  try {
+    const r = await api("me");
+    setSession(saved.token, r.user);
+    afterAuth();
+  } catch (err) {
+    if (err.code === "AUTH" || err.code === "MUST_CHANGE") return; // api() จัดการหน้าจอให้แล้ว
+    showAuth("login", err.message + " — กรุณาลองเข้าสู่ระบบอีกครั้ง", "error");
+  }
+})();
+</script>
+</body>
+</html>
